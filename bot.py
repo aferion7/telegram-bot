@@ -1,8 +1,13 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-TOKEN = "8369697340:AAHWtKSaL6zSa-AzWYlSqmm3SD_PKWcXZas"
-OWNER_ID = 7304157931
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # .env faylni o‘qiydi
+
+TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID"))
 
 reply_map = {}
 
