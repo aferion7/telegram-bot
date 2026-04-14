@@ -25,7 +25,9 @@ if not OWNER_ID:
 web_app = Flask(__name__)
 tg_app = Application.builder().token(TOKEN).build()
 
-# Admin tugma bosgandan keyin qaysi userga javob yozishini saqlaydi
+# Kim kimga javob yozayotgani shu yerda saqlanadi
+# admin uchun: pending_replies[OWNER_ID] = user_id
+# user uchun:  pending_replies[user_id] = OWNER_ID
 pending_replies = {}
 
 
@@ -56,26 +58,113 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def make_reply_button(user_id: int) -> InlineKeyboardMarkup:
+def make_admin_reply_button(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Ответить ✍️", callback_data=f"reply_{user_id}")]]
+        [[InlineKeyboardButton("Javob berish ✍️", callback_data=f"reply_{user_id}")]]
+    )
+
+
+def make_user_reply_button() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Javob berish ✍️", callback_data="user_reply")]]
     )
 
 
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == OWNER_ID:
-        return
-
     user = update.effective_user
     msg = update.message
-    keyboard = make_reply_button(user.id)
 
+    if user.id == OWNER_ID:
+        return
+
+    # Agar user adminning javobiga javob yozayotgan bo‘lsa
+    target = pending_replies.get(user.id)
+    if target == OWNER_ID:
+        info = (
+            f"📩 User javobi:\n"
+            f"Kim yubordi:\n"
+            f"Ism: {user.full_name}\n"
+            f"Username: @{user.username if user.username else 'yoq'}\n"
+            f"ID: {user.id}"
+        )
+
+        keyboard = make_admin_reply_button(user.id)
+
+        if msg.text:
+            await context.bot.send_message(
+                chat_id=OWNER_ID,
+                text=f"{info}\n\n{msg.text}",
+                reply_markup=keyboard,
+            )
+        elif msg.photo:
+            caption = msg.caption or ""
+            await context.bot.send_photo(
+                chat_id=OWNER_ID,
+                photo=msg.photo[-1].file_id,
+                caption=f"{info}\n\n{caption}",
+                reply_markup=keyboard,
+            )
+        elif msg.video:
+            caption = msg.caption or ""
+            await context.bot.send_video(
+                chat_id=OWNER_ID,
+                video=msg.video.file_id,
+                caption=f"{info}\n\n{caption}",
+                reply_markup=keyboard,
+            )
+        elif msg.audio:
+            caption = msg.caption or ""
+            await context.bot.send_audio(
+                chat_id=OWNER_ID,
+                audio=msg.audio.file_id,
+                caption=f"{info}\n\n{caption}",
+                reply_markup=keyboard,
+            )
+        elif msg.voice:
+            await context.bot.send_voice(
+                chat_id=OWNER_ID,
+                voice=msg.voice.file_id,
+                caption=info,
+                reply_markup=keyboard,
+            )
+        elif msg.document:
+            caption = msg.caption or ""
+            await context.bot.send_document(
+                chat_id=OWNER_ID,
+                document=msg.document.file_id,
+                caption=f"{info}\n\n{caption}",
+                reply_markup=keyboard,
+            )
+        elif msg.sticker:
+            await context.bot.send_sticker(
+                chat_id=OWNER_ID,
+                sticker=msg.sticker.file_id,
+                reply_markup=keyboard,
+            )
+            await context.bot.send_message(
+                chat_id=OWNER_ID,
+                text=info,
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=OWNER_ID,
+                text=f"Qo‘llab-quvvatlanmaydigan xabar turi.\n\n{info}",
+                reply_markup=keyboard,
+            )
+
+        pending_replies.pop(user.id, None)
+        await update.message.reply_text("Javobingiz yuborildi.")
+        return
+
+    # Oddiy anonim xabar
     info = (
         f"Kim yubordi:\n"
         f"Ism: {user.full_name}\n"
         f"Username: @{user.username if user.username else 'yoq'}\n"
         f"ID: {user.id}"
     )
+
+    keyboard = make_admin_reply_button(user.id)
 
     if msg.text:
         await context.bot.send_message(
@@ -153,17 +242,21 @@ async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    if query.from_user.id != OWNER_ID:
-        return
-
+    user = query.from_user
     data = query.data
-    if data.startswith("reply_"):
+
+    # Admin tugmasi
+    if user.id == OWNER_ID and data.startswith("reply_"):
         target_user_id = int(data.split("_")[1])
         pending_replies[OWNER_ID] = target_user_id
+        await query.message.reply_text("Javobingizni yuboring. Bekor qilish uchun /cancel yozing.")
+        return
 
-        await query.message.reply_text(
-            "Javobingizni yuboring. Bekor qilish uchun /cancel yozing."
-        )
+    # User tugmasi
+    if user.id != OWNER_ID and data == "user_reply":
+        pending_replies[user.id] = OWNER_ID
+        await query.message.reply_text("Javobingizni yozing.")
+        return
 
 
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,12 +274,14 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Bekor qilindi.")
         return
 
-    note = "\n\nAgar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing."
+    note = "\n\nAgar javob bermoqchi bo'lsangiz, shu tugmani bosing."
+    keyboard = make_user_reply_button()
 
     if msg.text:
         await context.bot.send_message(
             chat_id=target_user_id,
             text=f"📩 Admin javobi:\n{msg.text}{note}",
+            reply_markup=keyboard,
         )
 
     elif msg.photo:
@@ -195,6 +290,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             chat_id=target_user_id,
             photo=msg.photo[-1].file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
+            reply_markup=keyboard,
         )
 
     elif msg.video:
@@ -203,6 +299,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             chat_id=target_user_id,
             video=msg.video.file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
+            reply_markup=keyboard,
         )
 
     elif msg.audio:
@@ -211,6 +308,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             chat_id=target_user_id,
             audio=msg.audio.file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
+            reply_markup=keyboard,
         )
 
     elif msg.voice:
@@ -220,7 +318,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await context.bot.send_message(
             chat_id=target_user_id,
-            text="Agar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing.",
+            text="Agar javob bermoqchi bo'lsangiz, shu tugmani bosing.",
+            reply_markup=keyboard,
         )
 
     elif msg.document:
@@ -229,6 +328,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             chat_id=target_user_id,
             document=msg.document.file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
+            reply_markup=keyboard,
         )
 
     elif msg.sticker:
@@ -238,7 +338,8 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await context.bot.send_message(
             chat_id=target_user_id,
-            text="Agar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing.",
+            text="Agar javob bermoqchi bo'lsangiz, shu tugmani bosing.",
+            reply_markup=keyboard,
         )
 
     else:
