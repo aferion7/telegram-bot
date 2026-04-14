@@ -1,15 +1,19 @@
+import os
+import asyncio
+from flask import Flask, request
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-from dotenv import load_dotenv
-import os
-
-load_dotenv()  # .env faylni o‘qiydi
+load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
 reply_map = {}
+
+web_app = Flask(__name__)
+tg_app = Application.builder().token(TOKEN).build()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -19,7 +23,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         ref = context.args[0]
 
-    # faqat adminga ko'rinadi
     if ref and str(user.id) != ref:
         await context.bot.send_message(
             chat_id=OWNER_ID,
@@ -28,17 +31,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👤 {user.full_name}\n"
                 f"🆔 {user.id}\n"
                 f"🔗 Taklif qilgan ID: {ref}"
-            )
+            ),
         )
 
     user_link = f"https://t.me/{context.bot.username}?start={user.id}"
 
-    # userga esa referrer ko'rsatilmaydi
     await update.message.reply_text(
         f"👋 Salom!\n\n"
         f"📩 Anonim xabar yuborishingiz mumkin.\n\n"
-        f"🔗 Sizning shaxsiy linkingiz:\n{user_link}\n\n"
-        f"🚀 Do'stlaringizga yuboring!"
+        f"🔗 Sizning shaxsiy linkingiz:\n{user_link}"
     )
 
 
@@ -62,42 +63,50 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     if msg.text:
         sent = await context.bot.send_message(
             chat_id=OWNER_ID,
-            text=f"Yangi anonim xabar:\n{msg.text}\n\n{info}"
+            text=f"Yangi anonim xabar:\n{msg.text}\n\n{info}",
         )
     elif msg.photo:
+        caption = msg.caption or ""
         sent = await context.bot.send_photo(
             chat_id=OWNER_ID,
             photo=msg.photo[-1].file_id,
-            caption=f"Yangi anonim rasm\n\n{info}"
+            caption=f"Yangi anonim rasm\n\n{caption}\n\n{info}",
         )
     elif msg.video:
+        caption = msg.caption or ""
         sent = await context.bot.send_video(
             chat_id=OWNER_ID,
             video=msg.video.file_id,
-            caption=f"Yangi anonim video\n\n{info}"
+            caption=f"Yangi anonim video\n\n{caption}\n\n{info}",
         )
     elif msg.audio:
+        caption = msg.caption or ""
         sent = await context.bot.send_audio(
             chat_id=OWNER_ID,
             audio=msg.audio.file_id,
-            caption=f"Yangi anonim audio\n\n{info}"
+            caption=f"Yangi anonim audio\n\n{caption}\n\n{info}",
         )
     elif msg.voice:
         sent = await context.bot.send_voice(
             chat_id=OWNER_ID,
             voice=msg.voice.file_id,
-            caption=f"Yangi anonim voice xabar\n\n{info}"
+            caption=f"Yangi anonim voice\n\n{info}",
         )
     elif msg.document:
+        caption = msg.caption or ""
         sent = await context.bot.send_document(
             chat_id=OWNER_ID,
             document=msg.document.file_id,
-            caption=f"Yangi anonim fayl\n\n{info}"
+            caption=f"Yangi anonim fayl\n\n{caption}\n\n{info}",
+        )
+    else:
+        sent = await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"Qo‘llab-quvvatlanmaydigan xabar turi.\n\n{info}",
         )
 
     if sent:
         reply_map[sent.message_id] = user.id
-        print(f"Saved: admin message {sent.message_id} -> user {user.id}")
 
     await update.message.reply_text("Xabaringiz yuborildi.")
 
@@ -112,56 +121,54 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     replied_message_id = update.message.reply_to_message.message_id
     target_user_id = reply_map.get(replied_message_id)
 
-    print(f"Admin replied to message_id: {replied_message_id}")
-    print(f"Found target user: {target_user_id}")
-
     if not target_user_id:
         await update.message.reply_text("Bu xabarga anonim reply qilib bo'lmaydi.")
         return
 
-    reply_note = "\n\nAgar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing."
+    note = "\n\nAgar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing."
+    admin_msg = update.message
 
-    if update.message.text:
+    if admin_msg.text:
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"📩 Admin javobi:\n{update.message.text}{reply_note}"
+            text=f"📩 Admin javobi:\n{admin_msg.text}{note}",
         )
-    elif update.message.photo:
-        caption = update.message.caption or ""
+    elif admin_msg.photo:
+        caption = admin_msg.caption or ""
         await context.bot.send_photo(
             chat_id=target_user_id,
-            photo=update.message.photo[-1].file_id,
-            caption=f"📩 Admin javobi:\n{caption}{reply_note}"
+            photo=admin_msg.photo[-1].file_id,
+            caption=f"📩 Admin javobi:\n{caption}{note}",
         )
-    elif update.message.video:
-        caption = update.message.caption or ""
+    elif admin_msg.video:
+        caption = admin_msg.caption or ""
         await context.bot.send_video(
             chat_id=target_user_id,
-            video=update.message.video.file_id,
-            caption=f"📩 Admin javobi:\n{caption}{reply_note}"
+            video=admin_msg.video.file_id,
+            caption=f"📩 Admin javobi:\n{caption}{note}",
         )
-    elif update.message.audio:
-        caption = update.message.caption or ""
+    elif admin_msg.audio:
+        caption = admin_msg.caption or ""
         await context.bot.send_audio(
             chat_id=target_user_id,
-            audio=update.message.audio.file_id,
-            caption=f"📩 Admin javobi:\n{caption}{reply_note}"
+            audio=admin_msg.audio.file_id,
+            caption=f"📩 Admin javobi:\n{caption}{note}",
         )
-    elif update.message.voice:
+    elif admin_msg.voice:
         await context.bot.send_voice(
             chat_id=target_user_id,
-            voice=update.message.voice.file_id
+            voice=admin_msg.voice.file_id,
         )
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"Agar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing."
+            text="Agar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing.",
         )
-    elif update.message.document:
-        caption = update.message.caption or ""
+    elif admin_msg.document:
+        caption = admin_msg.caption or ""
         await context.bot.send_document(
             chat_id=target_user_id,
-            document=update.message.document.file_id,
-            caption=f"📩 Admin javobi:\n{caption}{reply_note}"
+            document=admin_msg.document.file_id,
+            caption=f"📩 Admin javobi:\n{caption}{note}",
         )
     else:
         await update.message.reply_text("Faqat matn, rasm, video, audio, voice yoki fayl yuboring.")
@@ -170,26 +177,49 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text("Javob yuborildi.")
 
 
-def main():
-    app = Application.builder().token(TOKEN).build()
+@web_app.route("/")
+def home():
+    return "Bot ishlayapti."
 
-    app.add_handler(CommandHandler("start", start))
 
-    app.add_handler(
-        MessageHandler(filters.REPLY & filters.User(user_id=OWNER_ID), handle_admin_reply)
+@web_app.route("/set_webhook")
+def set_webhook():
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if not render_url:
+        return "RENDER_EXTERNAL_URL topilmadi."
+
+    webhook_url = f"{render_url}/webhook/{TOKEN}"
+    result = asyncio.run(tg_app.bot.set_webhook(url=webhook_url))
+    return f"Webhook o‘rnatildi: {result}"
+
+
+@web_app.route(f"/webhook/{TOKEN}", methods=["POST"])
+def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, tg_app.bot)
+    asyncio.run(process_update(update))
+    return "ok"
+
+
+async def process_update(update: Update):
+    if not getattr(tg_app, "_initialized", False):
+        await tg_app.initialize()
+        tg_app._initialized = True
+    await tg_app.process_update(update)
+
+
+tg_app.add_handler(CommandHandler("start", start))
+tg_app.add_handler(
+    MessageHandler(filters.REPLY & filters.User(user_id=OWNER_ID), handle_admin_reply)
+)
+tg_app.add_handler(
+    MessageHandler(
+        (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Document.ALL)
+        & ~filters.User(user_id=OWNER_ID),
+        handle_user_message,
     )
-
-    app.add_handler(
-        MessageHandler(
-            (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Document.ALL)
-            & ~filters.User(user_id=OWNER_ID),
-            handle_user_message,
-        )
-    )
-
-    print("Bot ishlayapti...")
-    app.run_polling()
-
+)
 
 if __name__ == "__main__":
-    main()
+    port = int(os.getenv("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
