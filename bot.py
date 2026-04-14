@@ -2,18 +2,31 @@ import os
 import asyncio
 from flask import Flask, request
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
-reply_map = {}
+if not TOKEN:
+    raise ValueError("BOT_TOKEN topilmadi")
+if not OWNER_ID:
+    raise ValueError("OWNER_ID topilmadi")
 
 web_app = Flask(__name__)
 tg_app = Application.builder().token(TOKEN).build()
+
+# Admin tugma bosgandan keyin qaysi userga javob yozishini saqlaydi
+pending_replies = {}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,137 +56,196 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def make_reply_button(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Ответить ✍️", callback_data=f"reply_{user_id}")]]
+    )
+
+
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == OWNER_ID:
         return
 
     user = update.effective_user
     msg = update.message
+    keyboard = make_reply_button(user.id)
 
     info = (
         f"Kim yubordi:\n"
         f"Ism: {user.full_name}\n"
         f"Username: @{user.username if user.username else 'yoq'}\n"
-        f"ID: {user.id}\n\n"
-        f"Javob berish uchun shu xabarga reply qiling."
+        f"ID: {user.id}"
     )
 
-    sent = None
-
     if msg.text:
-        sent = await context.bot.send_message(
+        await context.bot.send_message(
             chat_id=OWNER_ID,
             text=f"Yangi anonim xabar:\n{msg.text}\n\n{info}",
+            reply_markup=keyboard,
         )
+
     elif msg.photo:
         caption = msg.caption or ""
-        sent = await context.bot.send_photo(
+        await context.bot.send_photo(
             chat_id=OWNER_ID,
             photo=msg.photo[-1].file_id,
             caption=f"Yangi anonim rasm\n\n{caption}\n\n{info}",
+            reply_markup=keyboard,
         )
+
     elif msg.video:
         caption = msg.caption or ""
-        sent = await context.bot.send_video(
+        await context.bot.send_video(
             chat_id=OWNER_ID,
             video=msg.video.file_id,
             caption=f"Yangi anonim video\n\n{caption}\n\n{info}",
+            reply_markup=keyboard,
         )
+
     elif msg.audio:
         caption = msg.caption or ""
-        sent = await context.bot.send_audio(
+        await context.bot.send_audio(
             chat_id=OWNER_ID,
             audio=msg.audio.file_id,
             caption=f"Yangi anonim audio\n\n{caption}\n\n{info}",
+            reply_markup=keyboard,
         )
+
     elif msg.voice:
-        sent = await context.bot.send_voice(
+        await context.bot.send_voice(
             chat_id=OWNER_ID,
             voice=msg.voice.file_id,
             caption=f"Yangi anonim voice\n\n{info}",
+            reply_markup=keyboard,
         )
+
     elif msg.document:
         caption = msg.caption or ""
-        sent = await context.bot.send_document(
+        await context.bot.send_document(
             chat_id=OWNER_ID,
             document=msg.document.file_id,
             caption=f"Yangi anonim fayl\n\n{caption}\n\n{info}",
-        )
-    else:
-        sent = await context.bot.send_message(
-            chat_id=OWNER_ID,
-            text=f"Qo‘llab-quvvatlanmaydigan xabar turi.\n\n{info}",
+            reply_markup=keyboard,
         )
 
-    if sent:
-        reply_map[sent.message_id] = user.id
+    elif msg.sticker:
+        await context.bot.send_sticker(
+            chat_id=OWNER_ID,
+            sticker=msg.sticker.file_id,
+            reply_markup=keyboard,
+        )
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=info,
+        )
+
+    else:
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=f"Qo‘llab-quvvatlanmaydigan xabar turi.\n\n{info}",
+            reply_markup=keyboard,
+        )
 
     await update.message.reply_text("Xabaringiz yuborildi.")
 
 
-async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.from_user.id != OWNER_ID:
+        return
+
+    data = query.data
+    if data.startswith("reply_"):
+        target_user_id = int(data.split("_")[1])
+        pending_replies[OWNER_ID] = target_user_id
+
+        await query.message.reply_text(
+            "Javobingizni yuboring. Bekor qilish uchun /cancel yozing."
+        )
+
+
+async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
         return
 
-    if not update.message.reply_to_message:
+    target_user_id = pending_replies.get(OWNER_ID)
+    if not target_user_id:
         return
 
-    replied_message_id = update.message.reply_to_message.message_id
-    target_user_id = reply_map.get(replied_message_id)
+    msg = update.message
 
-    if not target_user_id:
-        await update.message.reply_text("Bu xabarga anonim reply qilib bo'lmaydi.")
+    if msg.text and msg.text == "/cancel":
+        pending_replies.pop(OWNER_ID, None)
+        await update.message.reply_text("Bekor qilindi.")
         return
 
     note = "\n\nAgar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing."
-    admin_msg = update.message
 
-    if admin_msg.text:
+    if msg.text:
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"📩 Admin javobi:\n{admin_msg.text}{note}",
+            text=f"📩 Admin javobi:\n{msg.text}{note}",
         )
-    elif admin_msg.photo:
-        caption = admin_msg.caption or ""
+
+    elif msg.photo:
+        caption = msg.caption or ""
         await context.bot.send_photo(
             chat_id=target_user_id,
-            photo=admin_msg.photo[-1].file_id,
+            photo=msg.photo[-1].file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
         )
-    elif admin_msg.video:
-        caption = admin_msg.caption or ""
+
+    elif msg.video:
+        caption = msg.caption or ""
         await context.bot.send_video(
             chat_id=target_user_id,
-            video=admin_msg.video.file_id,
+            video=msg.video.file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
         )
-    elif admin_msg.audio:
-        caption = admin_msg.caption or ""
+
+    elif msg.audio:
+        caption = msg.caption or ""
         await context.bot.send_audio(
             chat_id=target_user_id,
-            audio=admin_msg.audio.file_id,
+            audio=msg.audio.file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
         )
-    elif admin_msg.voice:
+
+    elif msg.voice:
         await context.bot.send_voice(
             chat_id=target_user_id,
-            voice=admin_msg.voice.file_id,
+            voice=msg.voice.file_id,
         )
         await context.bot.send_message(
             chat_id=target_user_id,
             text="Agar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing.",
         )
-    elif admin_msg.document:
-        caption = admin_msg.caption or ""
+
+    elif msg.document:
+        caption = msg.caption or ""
         await context.bot.send_document(
             chat_id=target_user_id,
-            document=admin_msg.document.file_id,
+            document=msg.document.file_id,
             caption=f"📩 Admin javobi:\n{caption}{note}",
         )
+
+    elif msg.sticker:
+        await context.bot.send_sticker(
+            chat_id=target_user_id,
+            sticker=msg.sticker.file_id,
+        )
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text="Agar javob bermoqchi bo'lsangiz, shunchaki shu yerga yozing.",
+        )
+
     else:
-        await update.message.reply_text("Faqat matn, rasm, video, audio, voice yoki fayl yuboring.")
+        await update.message.reply_text("Faqat matn, rasm, video, audio, voice, fayl yoki sticker yuboring.")
         return
 
+    pending_replies.pop(OWNER_ID, None)
     await update.message.reply_text("Javob yuborildi.")
 
 
@@ -209,13 +281,24 @@ async def process_update(update: Update):
 
 
 tg_app.add_handler(CommandHandler("start", start))
+tg_app.add_handler(CallbackQueryHandler(reply_button_handler))
 tg_app.add_handler(
-    MessageHandler(filters.REPLY & filters.User(user_id=OWNER_ID), handle_admin_reply)
+    MessageHandler(
+        filters.User(user_id=OWNER_ID) & ~filters.COMMAND,
+        handle_admin_message,
+    )
 )
 tg_app.add_handler(
     MessageHandler(
-        (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Document.ALL)
-        & ~filters.User(user_id=OWNER_ID),
+        (
+            filters.TEXT
+            | filters.PHOTO
+            | filters.VIDEO
+            | filters.AUDIO
+            | filters.VOICE
+            | filters.Document.ALL
+            | filters.Sticker.ALL
+        ) & ~filters.User(user_id=OWNER_ID),
         handle_user_message,
     )
 )
