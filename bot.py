@@ -1,5 +1,6 @@
 import os
 import asyncio
+import threading
 from flask import Flask, request
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,10 +26,29 @@ if not OWNER_ID:
 web_app = Flask(__name__)
 tg_app = Application.builder().token(TOKEN).build()
 
-# Kim kimga javob yozayotgani shu yerda saqlanadi
-# admin uchun: pending_replies[OWNER_ID] = user_id
-# user uchun:  pending_replies[user_id] = OWNER_ID
 pending_replies = {}
+
+# Bitta umumiy async loop
+bot_loop = asyncio.new_event_loop()
+
+
+def start_background_loop(loop: asyncio.AbstractEventLoop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+
+threading.Thread(target=start_background_loop, args=(bot_loop,), daemon=True).start()
+
+
+def run_async(coro):
+    return asyncio.run_coroutine_threadsafe(coro, bot_loop)
+
+
+async def setup_bot():
+    await tg_app.initialize()
+
+
+run_async(setup_bot()).result()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,7 +86,7 @@ def make_admin_reply_button(user_id: int) -> InlineKeyboardMarkup:
 
 def make_user_reply_button() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Javob berish ✍️", callback_data="user_reply")]]
+        [[InlineKeyboardButton("Jvaob berish ✍️", callback_data="user_reply")]]
     )
 
 
@@ -77,7 +97,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     if user.id == OWNER_ID:
         return
 
-    # Agar user adminning javobiga javob yozayotgan bo‘lsa
     target = pending_replies.get(user.id)
     if target == OWNER_ID:
         info = (
@@ -156,7 +175,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Javobingiz yuborildi.")
         return
 
-    # Oddiy anonim xabar
     info = (
         f"Kim yubordi:\n"
         f"Ism: {user.full_name}\n"
@@ -245,14 +263,12 @@ async def reply_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     user = query.from_user
     data = query.data
 
-    # Admin tugmasi
     if user.id == OWNER_ID and data.startswith("reply_"):
         target_user_id = int(data.split("_")[1])
         pending_replies[OWNER_ID] = target_user_id
         await query.message.reply_text("Javobingizni yuboring. Bekor qilish uchun /cancel yozing.")
         return
 
-    # User tugmasi
     if user.id != OWNER_ID and data == "user_reply":
         pending_replies[user.id] = OWNER_ID
         await query.message.reply_text("Javobingizni yozing.")
@@ -362,7 +378,7 @@ def set_webhook():
         return "RENDER_EXTERNAL_URL topilmadi."
 
     webhook_url = f"{render_url}/webhook/{TOKEN}"
-    result = asyncio.run(tg_app.bot.set_webhook(url=webhook_url))
+    result = run_async(tg_app.bot.set_webhook(url=webhook_url)).result()
     return f"Webhook o‘rnatildi: {result}"
 
 
@@ -370,15 +386,8 @@ def set_webhook():
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, tg_app.bot)
-    asyncio.run(process_update(update))
+    run_async(tg_app.process_update(update))
     return "ok"
-
-
-async def process_update(update: Update):
-    if not getattr(tg_app, "_initialized", False):
-        await tg_app.initialize()
-        tg_app._initialized = True
-    await tg_app.process_update(update)
 
 
 tg_app.add_handler(CommandHandler("start", start))
