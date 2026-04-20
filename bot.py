@@ -95,7 +95,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
 @web_app.route("/")
 def home(): 
     return "Bot ishlayapti."
-@web_app.route("/set_webhook"); 
+@web_app.route("/set_webhook")
 def set_webhook():
     render_url = os.getenv("RENDER_EXTERNAL_URL")
     if not render_url: return "RENDER_EXTERNAL_URL topilmadi."
