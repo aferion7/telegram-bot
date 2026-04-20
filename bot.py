@@ -92,7 +92,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     await send_any_message(context.bot, target_user_id, msg, "📩 Admin javobi:", make_user_button())
     pending_replies.pop(OWNER_ID, None); await msg.reply_text("Javob yuborildi.")
 
-@web_app.route("/"); 
+@web_app.route("/")
 def home(): 
     return "Bot ishlayapti."
 @web_app.route("/set_webhook"); 
