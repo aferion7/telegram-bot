@@ -165,7 +165,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"👋 Salom!\n\n"
-        f"📩 Anonim xabar yuborishingiz mumkin.\n\n"
+        f"📩 Xabar yuborishingiz mumkin.\n\n"
         f"🔗 Sizning shaxsiy linkingiz:\n{user_link}"
     )
 
@@ -180,7 +180,7 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Agar user admin javobiga javob yozayotgan bo‘lsa
     if pending_replies.get(user.id) == OWNER_ID:
         info_for_admin = (
-            f"📩 User javobi:\n\n"
+            f"📩 Sizga javob keldi:\n\n"
             f"Kim yubordi:\n"
             f"Ism: {user.full_name}\n"
             f"Username: @{user.username if user.username else 'yoq'}\n"
@@ -226,7 +226,7 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.bot,
             target_user_id,
             msg,
-            "📩 Sizga anonim xabar keldi.",
+            "📩 Sizga xabar keldi.",
             make_user_button(),
         )
 
@@ -278,7 +278,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
             context.bot,
             target_user_id,
             msg,
-            "📩 Admin javobi:",
+            "📩 Sizga javob keldi:",
             make_user_button(),
         )
 
